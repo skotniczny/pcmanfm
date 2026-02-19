@@ -236,6 +236,7 @@ static void fm_app_config_init(FmAppConfig *cfg)
     cfg->desktop_section.desktop_sort_by = FM_FOLDER_MODEL_COL_MTIME;
     cfg->desktop_section.wallpaper_common = TRUE;
     cfg->desktop_section.show_documents = FALSE;
+    cfg->desktop_section.show_home = FALSE;
     cfg->desktop_section.show_trash = TRUE;
     cfg->desktop_section.show_mounts = FALSE;
     cfg->desktop_section.folder = NULL;
@@ -360,6 +361,7 @@ void fm_app_config_load_desktop_config(GKeyFile *kf, const char *group, FmDeskto
     fm_key_file_get_bool(kf, group, "show_wm_menu", &cfg->show_wm_menu);
     _parse_sort(kf, group, &cfg->desktop_sort_type, &cfg->desktop_sort_by);
     fm_key_file_get_bool(kf, group, "show_documents", &cfg->show_documents);
+    fm_key_file_get_bool(kf, group, "show_home", &cfg->show_home);
     fm_key_file_get_bool(kf, group, "show_trash", &cfg->show_trash);
     fm_key_file_get_bool(kf, group, "show_mounts", &cfg->show_mounts);
 }
@@ -736,6 +738,7 @@ void fm_app_config_save_desktop_config(GString *buf, const char *group, FmDeskto
     g_string_append_printf(buf, "show_wm_menu=%d\n", cfg->show_wm_menu);
     _save_sort(buf, cfg->desktop_sort_type, cfg->desktop_sort_by);
     g_string_append_printf(buf, "show_documents=%d\n", cfg->show_documents);
+    g_string_append_printf(buf, "show_home=%d\n", cfg->show_home);
     g_string_append_printf(buf, "show_trash=%d\n", cfg->show_trash);
     g_string_append_printf(buf, "show_mounts=%d\n", cfg->show_mounts);
 }

@@ -164,6 +164,7 @@ typedef struct
 static FmDesktopExtraItem *documents = NULL;
 //static FmDesktopExtraItem *computer = NULL;
 static FmDesktopExtraItem *trash_can = NULL;
+static FmDesktopExtraItem *home = NULL;
 //static FmDesktopExtraItem *applications = NULL;
 
 /* under GDK lock */
@@ -251,7 +252,8 @@ static inline FmDesktopItem* desktop_item_new(FmFolderModel* model, GtkTreeIter*
     gtk_tree_model_get(GTK_TREE_MODEL(model), it, FM_FOLDER_MODEL_COL_INFO, &item->fi, -1);
     fm_file_info_ref(item->fi);
     if ((trash_can && trash_can->fi == item->fi) ||
-        (documents && documents->fi == item->fi))
+        (documents && documents->fi == item->fi) ||
+        (home && home->fi == item->fi))
         item->is_special = TRUE;
     else for (sl = mounts; sl; sl = sl->next)
         if (((FmDesktopExtraItem *)sl->data)->fi == item->fi)
@@ -606,6 +608,7 @@ static void copy_desktop_config(FmDesktopConfig *dst, FmDesktopConfig *src)
     dst->desktop_sort_by = src->desktop_sort_by;
     dst->folder = g_strdup(src->folder);
     dst->show_documents = src->show_documents;
+    dst->show_home = src->show_home;
     dst->show_trash = src->show_trash;
     dst->show_mounts = src->show_mounts;
 
@@ -636,6 +639,20 @@ static gboolean on_idle_extra_item_add(gpointer user_data)
         /* add it to all models that watch documents */
         for (i = 0; i < n_monitors; i++)
             if (desktops[i]->monitor >= 0 && desktops[i]->conf.show_documents
+                && desktops[i]->model)
+            {
+                fm_folder_model_extra_file_add(desktops[i]->model, item->fi,
+                                               FM_FOLDER_MODEL_ITEMPOS_PRE);
+                /* if this is extra item it might be loaded after the folder
+                   therefore we have to reload fixed positions again to apply */
+                reload_items(desktops[i]);
+            }
+    }
+    else if (item == home)
+    {
+        /* add it to all models that watch home */
+        for (i = 0; i < n_monitors; i++)
+            if (desktops[i]->monitor >= 0 && desktops[i]->conf.show_home
                 && desktops[i]->model)
             {
                 fm_folder_model_extra_file_add(desktops[i]->model, item->fi,
@@ -2883,6 +2900,10 @@ static void on_disable(GtkAction* act, gpointer user_data)
     else if (documents && documents->fi == item->fi)
     {
         desktop->conf.show_documents = FALSE;
+    }
+    else if (home && home->fi == item->fi)
+    {
+        desktop->conf.show_home = FALSE;
     }
     else /* else is error */
     {
@@ -5432,6 +5453,25 @@ static void on_show_documents_toggled(GtkToggleButton* btn, FmDesktop *desktop)
     }
 }
 
+static void on_show_home_toggled(GtkToggleButton* btn, FmDesktop *desktop)
+{
+    gboolean new_val = gtk_toggle_button_get_active(btn);
+
+    if(desktop->conf.show_home != new_val)
+    {
+        desktop->conf.show_home = new_val;
+        queue_config_save(desktop);
+        if (home && home->fi && desktop->model)
+        {
+            if (new_val)
+                fm_folder_model_extra_file_add(desktop->model, home->fi,
+                                               FM_FOLDER_MODEL_ITEMPOS_PRE);
+            else
+                fm_folder_model_extra_file_remove(desktop->model, home->fi);
+        }
+    }
+}
+
 static void on_show_trash_toggled(GtkToggleButton* btn, FmDesktop *desktop)
 {
     gboolean new_val = gtk_toggle_button_get_active(btn);
@@ -5684,6 +5724,10 @@ void fm_desktop_preference(GtkAction *act, FmDesktop *desktop)
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(item), desktop->conf.show_documents);
         gtk_widget_set_sensitive(GTK_WIDGET(item), documents != NULL);
         g_signal_connect(item, "toggled", G_CALLBACK(on_show_documents_toggled), desktop);
+        item = gtk_builder_get_object(builder, "show_home");
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(item), desktop->conf.show_home);
+        gtk_widget_set_sensitive(GTK_WIDGET(item), home != NULL);
+        g_signal_connect(item, "toggled", G_CALLBACK(on_show_home_toggled), desktop);
         item = gtk_builder_get_object(builder, "show_trash");
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(item), desktop->conf.show_trash);
         gtk_widget_set_sensitive(GTK_WIDGET(item), trash_can != NULL);
@@ -5716,6 +5760,14 @@ void update_icons (FmDesktop *desktop)
 				fm_folder_model_extra_file_add(desktop->model, documents->fi, FM_FOLDER_MODEL_ITEMPOS_PRE);
 			else
 				fm_folder_model_extra_file_remove(desktop->model, documents->fi);
+		}
+
+		if (home && home->fi)
+		{
+			if (desktop->conf.show_home)
+				fm_folder_model_extra_file_add(desktop->model, home->fi, FM_FOLDER_MODEL_ITEMPOS_PRE);
+			else
+				fm_folder_model_extra_file_remove(desktop->model, home->fi);
 		}
 
 		if (trash_can && trash_can->fi)
@@ -5881,6 +5933,7 @@ void fm_desktop_manager_init(gint on_screen)
     }
     g_object_unref(gf);
     documents = _add_extra_item(g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS));
+    home = _add_extra_item(g_get_home_dir ());
     /* FIXME: support some other dirs */
     vol_mon = g_volume_monitor_get();
     if (G_LIKELY(vol_mon))
@@ -5937,6 +5990,11 @@ void fm_desktop_manager_finalize()
         _free_extra_item(documents);
         documents = NULL;
     }
+    if (G_LIKELY(home))
+    {
+        _free_extra_item(home);
+        home = NULL;
+    }
     if (G_LIKELY(trash_can))
     {
         g_signal_handlers_disconnect_by_func(trash_monitor, on_trash_changed, trash_can);
@@ -5983,6 +6041,7 @@ static gboolean update_monitors (gpointer user_data)
     {
         // delete existing desktop items
         if (documents && documents->fi) fm_folder_model_extra_file_remove (desktops[mon]->model, documents->fi);
+        if (home && home->fi) fm_folder_model_extra_file_remove (desktops[mon]->model, home->fi);
         if (trash_can && trash_can->fi) fm_folder_model_extra_file_remove (desktops[mon]->model, trash_can->fi);
 
         GSList *msl;
@@ -6004,6 +6063,11 @@ static gboolean update_monitors (gpointer user_data)
     {
         _free_extra_item (documents);
         documents = NULL;
+    }
+    if (home)
+    {
+        _free_extra_item (home);
+        home = NULL;
     }
     if (trash_can)
     {
@@ -6056,6 +6120,7 @@ static gboolean update_monitors (gpointer user_data)
 
     // re-create desktop items
     documents = _add_extra_item (g_get_user_special_dir (G_USER_DIRECTORY_DOCUMENTS));
+    home = _add_extra_item (g_get_home_dir ());
 
     GFile *gf = fm_file_new_for_uri ("trash:///");
     if (g_file_query_exists (gf, NULL))
